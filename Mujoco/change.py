@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
-rosbag2 db3 파일을 MuJoCo .act 파일로 변환 (순서 보존 버전)
-사용법: python3 change.py [bag_directory] [topic_name] [output_act_file]
-예시: python3 change.py robot_demo_0 /joint_states robot_demo.act
+rosbag2 db3 파일을 MuJoCo .act 파일로 변환 (개선된 버전)
+사용법: python3 db3_to_act.py [bag_directory] [topic_name] [output_act_file]
+예시: python3 db3_to_act.py demo_1_0 /joint_states demo_1.act
 
 개선 사항:
 1. 데이터 전처리 및 필터링 추가
 2. 일정한 샘플링 레이트로 리샘플링
 3. 데이터 보간 기능 추가
 4. 디버깅 및 진단 정보 출력
-5. 관절 순서 보존 및 명확한 매핑
 """
 
 import sys
@@ -24,8 +23,8 @@ from scipy import interpolate
 
 def main():
     if len(sys.argv) != 4:
-        print("사용법: python3 change.py [bag_directory] [topic_name] [output_act_file]")
-        print("예시: python3 change.py robot_demo_0 /joint_states robot_demo.act")
+        print("사용법: python3 db3_to_act.py [bag_directory] [topic_name] [output_act_file]")
+        print("예시: python3 db3_to_act.py demo_1_0 /joint_states demo_1.act")
         sys.exit(1)
     
     bag_directory = sys.argv[1]
@@ -131,41 +130,6 @@ def main():
         max_dt = np.max(np.diff(time_data))
         print(f"원본 샘플링: 평균 {avg_rate:.1f}Hz (dt: 평균 {avg_dt*1000:.1f}ms, 최소 {min_dt*1000:.1f}ms, 최대 {max_dt*1000:.1f}ms)")
     
-    # 각 관절의 움직임 분석
-    movement_analysis = []
-    for i in range(ctrl_data.shape[1]):
-        joint_data = ctrl_data[:, i]
-        min_val = np.min(joint_data)
-        max_val = np.max(joint_data)
-        range_val = max_val - min_val
-        std_val = np.std(joint_data)
-        
-        # 관절이 얼마나 움직였는지를 나타내는 활동 지수
-        activity_index = std_val * 100.0  # 표준편차를 기준으로 활동 지수 계산
-        
-        # 이 관절이 처음으로 움직인 타임스탬프 찾기 (초기값과의 차이가 임계값을 넘을 때)
-        threshold = 0.001
-        initial_value = joint_data[0]
-        first_movement_idx = np.argmax(np.abs(joint_data - initial_value) > threshold)
-        first_movement_time = time_data[first_movement_idx] if first_movement_idx > 0 else float('inf')
-        
-        movement_analysis.append({
-            'index': i,
-            'name': joint_names[i] if i < len(joint_names) else f"Joint_{i}",
-            'range': range_val,
-            'std': std_val,
-            'activity': activity_index,
-            'first_movement': first_movement_time
-        })
-    
-    # 움직임이 있는 관절 출력 (활동 지수 기준으로 정렬)
-    movement_analysis.sort(key=lambda x: x['first_movement'])
-    print("\n움직임 시간 순서별 관절 분석:")
-    for joint in movement_analysis:
-        if joint['range'] > 0.001:  # 의미 있는 움직임이 있는 관절만 표시
-            print(f"  {joint['name']}: 처음 움직임 {joint['first_movement']:.2f}초, "
-                 f"범위 {joint['range']:.4f}, 활동 지수 {joint['activity']:.4f}")
-    
     # 리샘플링 수행
     if resample_rate > 0:
         # 균일한 시간 간격으로 새 타임스탬프 생성
@@ -186,7 +150,7 @@ def main():
             outliers = np.abs(joint_data - mean_val) > 3 * std_val
             if np.any(outliers):
                 outlier_count = np.sum(outliers)
-                print(f"경고: 관절 {i}({joint_names[i] if i < len(joint_names) else 'Unknown'})에서 {outlier_count}개의 이상치 발견. 이상치는 필터링됩니다.")
+                print(f"경고: 관절 {i}에서 {outlier_count}개의 이상치 발견. 이상치는 필터링됩니다.")
                 
                 # 이상치가 아닌 데이터만 사용해 보간
                 valid_indices = ~outliers
@@ -229,32 +193,19 @@ def main():
     # 데이터 시각화 (디버그 모드)
     if debug_mode:
         try:
-            # 두 개의 그래프 생성: 왼쪽 관절, 오른쪽 관절
-            plt.figure(figsize=(16, 10))
+            # 그래프를 표시할 관절 선택 (최대 6개)
+            num_joints = min(6, ctrl_data.shape[1])
             
-            # 왼쪽 로봇 관절 (5개 표시)
-            plt.subplot(2, 1, 1)
-            left_joints = [i for i in range(len(joint_names)) if 'left' in joint_names[i]]
-            for i in left_joints[:5]:  # 처음 5개만 표시
-                plt.plot(time_data, ctrl_data[:, i], label=joint_names[i])
+            plt.figure(figsize=(12, 8))
+            for i in range(num_joints):
+                joint_name = joint_names[i] if i < len(joint_names) else f"Joint {i}"
+                plt.plot(time_data, ctrl_data[:, i], label=joint_name)
+            
             plt.xlabel('Time (s)')
             plt.ylabel('Joint Position')
-            plt.title('Left Robot Joint Positions')
+            plt.title('Joint Positions from ROS Bag')
             plt.grid(True)
             plt.legend()
-            
-            # 오른쪽 로봇 관절 (5개 표시)
-            plt.subplot(2, 1, 2)
-            right_joints = [i for i in range(len(joint_names)) if 'right' in joint_names[i]]
-            for i in right_joints[:5]:  # 처음 5개만 표시
-                plt.plot(time_data, ctrl_data[:, i], label=joint_names[i])
-            plt.xlabel('Time (s)')
-            plt.ylabel('Joint Position')
-            plt.title('Right Robot Joint Positions')
-            plt.grid(True)
-            plt.legend()
-            
-            plt.tight_layout()
             
             # 그래프 저장
             debug_plot_file = os.path.splitext(output_file)[0] + "_debug_plot.png"
@@ -263,53 +214,59 @@ def main():
             
             # 추가 통계 정보
             print("\n관절별 통계 정보:")
-            for i in range(min(ctrl_data.shape[1], len(joint_names))):
+            for i in range(min(10, ctrl_data.shape[1])):  # 최대 10개 관절까지만 출력
+                joint_name = joint_names[i] if i < len(joint_names) else f"Joint {i}"
                 joint_data = ctrl_data[:, i]
                 joint_min = np.min(joint_data)
                 joint_max = np.max(joint_data)
                 joint_range = joint_max - joint_min
-                print(f"  {joint_names[i]}: 범위 {joint_min:.4f} ~ {joint_max:.4f} (폭: {joint_range:.4f})")
+                print(f"  {joint_name}: 범위 {joint_min:.4f} ~ {joint_max:.4f} (폭: {joint_range:.4f})")
             
         except Exception as e:
             print(f"디버그 그래프 생성 중 오류 발생: {e}")
-            import traceback
-            traceback.print_exc()
     
-    # MuJoCo .act 파일용 관절 데이터 매핑
-    # 필요한 관절 이름 정의 (MuJoCo XML에 정의된 순서대로)
-    required_joint_names = [
-        'left_joint1', 'left_joint2', 'left_joint3', 'left_joint4', 'left_gripper_left_joint',
-        'right_joint1', 'right_joint2', 'right_joint3', 'right_joint4', 'right_gripper_left_joint'
+    # MuJoCo .act 파일로 변환
+    
+    # 관절 데이터 중 필요한 것만 선택 (MuJoCo 모델의 액추에이터 순서와 일치)
+    # XML 파일의 액추에이터 순서를 따라야 함
+    actuator_names = [
+        "left_actuator_joint1", "left_actuator_joint2", "left_actuator_joint3", "left_actuator_joint4", "left_actuator_gripper_joint",
+        "right_actuator_joint1", "right_actuator_joint2", "right_actuator_joint3", "right_actuator_joint4", "right_actuator_gripper_joint"
     ]
     
-    # ROS 메시지에서 필요한 관절 인덱스 찾기
+    # 관절 이름에서 필요한 인덱스 찾기
+    required_joints = []  # 필요한 관절들의 인덱스를 저장
+    
+    # 왼쪽 관절
+    left_joints = ['left_joint1', 'left_joint2', 'left_joint3', 'left_joint4', 'left_gripper_left_joint']
+    right_joints = ['right_joint1', 'right_joint2', 'right_joint3', 'right_joint4', 'right_gripper_left_joint']
+    
+    all_required_joints = left_joints + right_joints
+    
+    # 관절 인덱스 찾기
     joint_indices = []
-    for joint_name in required_joint_names:
+    for joint_name in all_required_joints:
         if joint_name in joint_names:
             joint_indices.append(joint_names.index(joint_name))
         else:
             print(f"경고: 필요한 관절 '{joint_name}'이 ROS 메시지에 없습니다.")
-            joint_indices.append(-1)  # -1은 찾을 수 없는 관절을 의미
+            # 누락된 관절의 경우 -1을 추가하여 나중에 0으로 채움
+            joint_indices.append(-1)
     
-    # 최종 제어 데이터 생성 (필요한 관절만 포함)
-    final_ctrl_data = np.zeros((len(time_data), len(required_joint_names)))
+    # 필요한 관절 데이터만 추출
+    final_ctrl_data = np.zeros((len(time_data), len(all_required_joints)))
     
     for i, idx in enumerate(joint_indices):
         if idx >= 0:  # 유효한 인덱스인 경우
             final_ctrl_data[:, i] = ctrl_data[:, idx]
-        else:
-            print(f"경고: 관절 {required_joint_names[i]}이(가) 누락되어 0으로 설정됩니다.")
+    
+    # 최종 출력 정보
+    print(f"\n최종 데이터: {len(time_data)}개 프레임, {final_ctrl_data.shape[1]}개 액추에이터")
     
     # .act 파일 헤더 작성
     act_header = array.array('i', [1, 0])  # 형식 버전, 예약
-    act_header.append(len(required_joint_names))  # 제어 차원
-    act_header.append(len(time_data))  # 프레임 수
-    
-    # 매핑 정보 출력
-    print("\n매핑된 관절 목록 (MuJoCo 액추에이터 순서):")
-    for i, name in enumerate(required_joint_names):
-        index_str = f"{joint_indices[i]}" if joint_indices[i] >= 0 else "누락됨"
-        print(f"  {i}: {name} (ROS 인덱스: {index_str})")
+    act_header.append(final_ctrl_data.shape[1])  # 제어 차원
+    act_header.append(final_ctrl_data.shape[0])  # 프레임 수
     
     # .act 파일 저장
     with open(output_file, 'wb') as f:
@@ -317,7 +274,7 @@ def main():
         time_data.astype(np.float64).tofile(f)
         final_ctrl_data.astype(np.float64).tofile(f)
     
-    print(f"\n변환 완료: {output_file}")
+    print(f"변환 완료: {output_file}")
     print(f"파일 크기: {os.path.getsize(output_file) / 1024:.1f} KB")
     
     conn.close()
