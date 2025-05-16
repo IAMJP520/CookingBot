@@ -11,7 +11,7 @@ from mujoco.glfw import glfw
 
 # 설정 파일 경로
 model_path = os.path.join(os.path.dirname(__file__), "dual_arm_robot.xml")
-act_path = "demo_manual.act"  # 여기를 실제 .act 파일 이름으로 수정하세요
+act_path = "dual_arm.act"  # 여기를 실제 .act 파일 이름으로 수정하세요
 
 # MuJoCo 모델 로드
 model = mujoco.MjModel.from_xml_path(model_path)
