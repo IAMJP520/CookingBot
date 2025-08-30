@@ -1,4 +1,7 @@
 # CookingBot
+<img width="2048" height="1536" alt="image" src="https://github.com/user-attachments/assets/f6365147-a51a-4968-b61c-a9ba7a84bcc8" />
+<img width="877" height="990" alt="image" src="https://github.com/user-attachments/assets/bbe328fd-a712-4890-b176-84e5e1fd9b9e" />
+
 KNU_캡스톤 디자인
 omx 한 팔 로봇을 수동 조작 및 pick n place 작업 수행할 수 있음
 한 팔 로봇이 publish 하는 joint states를 subscribe하여 rosbag(db3)로 저장 및 .act로 변환하여 Mujoco에서 다시 재현 --완료--
